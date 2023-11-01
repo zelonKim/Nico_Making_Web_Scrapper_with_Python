@@ -55,67 +55,71 @@ print(jobs)
 
 ############################
 
+"""
+from extractors.indeed import extract_indeed_jobs
+from extractors.wwr import extract_wwr_jobs
+from file import save_to_file
+
+keyword = input("What do you want to search for?")
+
+indeed = extract_indeed_jobs(keyword)
+wwr = extract_wwr_jobs(keyword)
+jobs = indeed + wwr 
+
+save_to_file(keyword, jobs) 
+"""
 
 
-from requests import get
-from bs4 import BeautifulSoup
+############################
 
-def get_page_count(keyword):
-  base_url = "https://kr.indeed.com/jobs?q="
-  response = get(f"{base_url}{keyword}")
 
-  if response.status_code != 200:
-    print("Can not request")
-  else:
-    soup = BeautifulSoup(response.text, "html.parser")
-    pagination = soup.find("ul", class_="pagination-list")
+from flask import Flask, render_template, request, redirect, send_file
+from extractors.indeed import extract_indeed_jobs
+from extractors.wwr import extract_wwr_jobs
+from file import save_to_file
 
-    if pagination == None:
-      return 1
+app = Flask("JobScrapper")
 
-    pages = pagination.find_all("li", recursive=False)
-    count = len(pages)
-    if count >= 5:
-      return 5
+db={
+    
+}
+
+@app.route("/") # If you enter '/' URL,  Executes the decorated function   and   Shows the returned value on Screen 
+def home():
+    return render_template("home.html", name="seongjin") 
+          
+@app.route("/search")
+def search():
+    # print(request.args) # ImmutableMultiDict([('keyword', 'python')])
+    keyword = request.args.get("keyword")
+    if keyword == None:
+       return redirect("/")   
+    
+    if keyword in db:
+        jobs = db[keyword]
     else:
-      return count
+      indeed = extract_indeed_jobs(keyword)
+      wwr = extract_wwr_jobs(keyword)
+      jobs = indeed + wwr
+      db[keyword] = jobs
+
+    return render_template("search.html", keyword=keyword, jobs=jobs) # render_template("파일명", 변수명=값): In 'templates' folder, Renders the file of which name is '파일명' and Sends '변수명=값' to '파일명'
 
 
 
-def extract_indeed_jobs(keyword):
-  pages = get_page_count(keyword)
-  for page in range(pages):
-    base_url = "https://kr.indeed.com/jobs?q="
+@app.route("/export")
+def export():
+  keyword = request.args.get("keyword")
+  
+  if keyword == None:
+    return redirect("/")
+  
+  if keyword not in db:
+     return redirect(f"/search?keyword={keyword}")
+  
+  save_to_file(keyword, db[keyword])
+  return send_file(f"{keyword}.csv", as_attachment=True) # send_file("파일명", 옵션)   # 'as_attachment=True' triggers download
 
-    response = get(f"{base_url}{keyword}")
 
-    if response.status_code != 200:
-      print("Can not request")
-    else:
-      results = []
-      soup = BeautifulSoup(response.text, "html.parser")
-      job_list = soup.find("ul", class_="jobsearch-ResultsList")
-      jobs = job_list.find_all(
-          'li',
-          recursive=False)  # ' recursive=False' finds the 'tag' by one depth
-      for job in jobs:
-        zone = job.find(
-            "div", class_="mosaic-zone"
-        )  # if .find() did not find anything, returns 'None' type
-        if zone == None:
-          anchor = job.select_one("h2 a")  # finds 'a' tag in 'h2' tag
-          title = anchor['aria-label']
-          link = anchor['href']
-          company = job.find("span", class_="companyName")
-          location = job.find("div", class_="companyLocation")
-          job_data = {
-              'link': f"https://kr.indeed.com{link}",
-              'company': company.string,
-              'location': location.string,
-              'position': title
-          }
-          results.append(job_data)
 
-      for result in results:
-        print(result, "\n//////\n")
-
+app.run("0.0.0.0") # run the Flask Server
